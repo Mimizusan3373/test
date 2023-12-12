@@ -1,0 +1,101 @@
+package main
+
+import (
+	"bufio"
+	"encoding/binary"
+	"fmt"
+	"io"
+	"log"
+	"os"
+	"strings"
+	"time"
+)
+
+type Record struct {
+	TimeStamp  int64
+	Content    []string
+	SaveTarget bool
+}
+
+type FileHistoryLib struct {
+	records map[string]Record
+}
+
+func NewFileHistoryLib() *FileHistoryLib {
+	return &FileHistoryLib{
+		records: make(map[string]Record),
+	}
+}
+
+func (f *FileHistoryLib) Load(reader io.Reader) {
+	bufReader := bufio.NewReader(reader)
+	for {
+		data, err := bufReader.ReadString('\x1d') // read until 0x1d
+		if err != nil {
+			if err != io.EOF {
+				fmt.Println("読み込み中にエラーが発生しました:", err)
+			}
+			break
+		}
+
+		// 0x1cでデータを分割
+		records := strings.Split(data, string(rune(0x1c)))
+
+		// 先頭8バイトをTimeStampとして取得
+		if len(records[0]) >= 8 {
+			timeStampBytes := []byte(records[0])[:8]
+			timeStamp := int64(binary.LittleEndian.Uint64(timeStampBytes))
+
+			// RecordにTimeStampを設定
+			f.records[records[0]] = Record{TimeStamp: timeStamp, Content: records, SaveTarget: false}
+		}
+	}
+}
+
+func (f *FileHistoryLib) IsUpdate(filepath string) bool {
+	record, exists := f.records[filepath]
+	if !exists {
+		return false
+	}
+	fileInfo, err := os.Stat(filepath)
+	if err != nil {
+		log.Fatal(err)
+	}
+	currentTimeStamp := fileInfo.ModTime().Unix()
+	return record.TimeStamp != currentTimeStamp
+}
+
+func (f *FileHistoryLib) RegisterSaveTarget(filepath string, content []string) {
+	record, exists := f.records[filepath]
+	if !exists {
+		f.records[filepath] = Record{TimeStamp: time.Now().Unix(), Content: content, SaveTarget: true}
+		return
+	}
+	record.SaveTarget = true
+	f.records[filepath] = record
+}
+
+func (f *FileHistoryLib) GetContent(filepath string) ([]string, bool) {
+	record, exists := f.records[filepath]
+	if !exists {
+		return nil, false
+	}
+	return record.Content, true
+}
+
+func (f *FileHistoryLib) Save(writer io.Writer) {
+	bufWriter := bufio.NewWriter(writer)
+	for _, record := range f.records {
+		if record.SaveTarget {
+			timeStampBytes := make([]byte, 8)
+			binary.LittleEndian.PutUint64(timeStampBytes, uint64(record.TimeStamp))
+			bufWriter.Write(timeStampBytes)
+			bufWriter.WriteString(string(rune(0x1c)))
+			bufWriter.WriteString(strings.Join(record.Content, string(rune(0x1c))))
+			bufWriter.WriteString(string(rune(0x1d)))
+		}
+	}
+	bufWriter.Flush()
+}
+
+func main() {}

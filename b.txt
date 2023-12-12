@@ -1,0 +1,36 @@
+package yourpackage // 適切なパッケージ名に変更してください
+
+import (
+	"bytes"
+	"encoding/binary"
+	"testing"
+)
+
+func TestFileHistoryLib_Load(t *testing.T) {
+	// テストデータの準備
+	var buf bytes.Buffer
+	expectedTimeStamp := int64(12345678)
+	binary.Write(&buf, binary.LittleEndian, expectedTimeStamp)
+	buf.WriteString("content\x1cdata\x1d")
+
+	// FileHistoryLibの初期化
+	f := FileHistoryLib{records: make(map[string]Record)}
+
+	// Load関数をテスト
+	f.Load(&buf)
+
+	// テスト結果の検証
+	record, exists := f.records["content"]
+	if !exists {
+		t.Errorf("Record was not found in records")
+	}
+	if record.TimeStamp != expectedTimeStamp {
+		t.Errorf("Expected TimeStamp %d, got %d", expectedTimeStamp, record.TimeStamp)
+	}
+	if len(record.Content) != 2 || record.Content[1] != "data" {
+		t.Errorf("Unexpected content: %+v", record.Content)
+	}
+	if record.SaveTarget {
+		t.Errorf("Unexpected SaveTarget value: got true, want false")
+	}
+}
